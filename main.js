@@ -5,6 +5,7 @@ const fetch = require('node-fetch');
 
 
 const segmentSize = 100; // # experiments to retrieve per segment
+const server = 'http://test.encodedcc.org';
 
 
 // From the search result data, get the list of experiment accessions as an array of strings.
@@ -16,13 +17,13 @@ function getIdsFromData(data) {
 // Given a search result, get the total number of experiments in the database
 function getExperimentTotalFromResult(result) {
     const typeFacet = result.facets.find(facet => facet.field === 'type');
-    const experimentTypeTerm = typeFacet.terms.find(term => term.key === 'Experiment');
+    const experimentTypeTerm = typeFacet.terms.find(term => term.key === 'Annotation');
     return experimentTypeTerm.doc_count;
 }
 
 
 function getExperiment(experimentId) {
-    const url = `http://localhost:6543${experimentId}`;
+    const url = `${server}${experimentId}?frame=object`;
     return fetch(url, {
         method: 'GET',
         headers: {
@@ -34,6 +35,16 @@ function getExperiment(experimentId) {
             return response.text();
         }
         throw new Error('not ok');
+    }).then((body) => {
+        // Convert JSON to Javascript object, then attach start index so we can sort the
+        // segments later if needed
+        try {
+            const result = JSON.parse(body);
+            return Promise.resolve(result);
+        } catch (error) {
+            console.log('ERR: %s,%o', error, body);
+        }
+        return Promise.resolve();
     }).catch((e) => {
         console.log('OBJECT LOAD ERROR: %s', e);
     });
@@ -45,7 +56,7 @@ function getExperiment(experimentId) {
 // - count: Number of entries to retrieve. default is ENCODE system default. 'all' for all
 //          entries.
 function getSegment(start, count) {
-    const url = `http://localhost:6543/search/?type=Experiment${count ? `&limit=${count}` : ''}${start ? `&from=${start}` : ''}`;
+    const url = `${server}/search/?type=Annotation${count ? `&limit=${count}` : ''}${start ? `&from=${start}` : ''}`;
     return fetch(url, {
         method: 'GET',
         headers: {
@@ -98,7 +109,7 @@ function getExperimentsIds() {
                 const currSegmentSize = experimentsLeft > segmentSize ? segmentSize : experimentsLeft;
                 parms.push({ start: start, count: currSegmentSize });
                 start += currSegmentSize;
-                experimentsLeft = totalRetrieveExperiments - start;
+                experimentsLeft = totalExperiments - start;
             }
             return parms;
         })();
@@ -130,20 +141,13 @@ getExperimentsIds().then(experimentIds => {
         ).then((experiment) => {
             let trimmedExperiment = experiment;
 
-            // Convert to object and remove audits if they exist.
-            const experimentObj = JSON.parse(experiment);
-            if (experimentObj.audit) {
-                delete experimentObj.audit;
-                trimmedExperiment = JSON.stringify(experimentObj);
-            }
-
             // Got the experiment; add its ID and size to our array of experiments
-            experimentStats.push({ id: experimentId, size: trimmedExperiment.length });
+            experimentStats.push({ id: experimentId, size: trimmedExperiment.related_files ? trimmedExperiment.related_files.length : 0 });
 
             // Every 20 experiments, give some progress.
             i += 1;
             if (i % 20 === 0) {
-                console.log('Got %s experiments', i);
+                console.log('Got %s annotations', i);
             }
 
             // Return the updated array of statistics.
@@ -153,6 +157,6 @@ getExperimentsIds().then(experimentIds => {
 }).then((experimentStats) => {
     const sortedStats = experimentStats.sort((a, b) => b.size - a.size);
     sortedStats.forEach(stat => {
-        console.log('Experiment: %s -- size: %s', stat.id, stat.size);
+        console.log('Annotation: %s -- size: %s', stat.id, stat.size);
     });
 });
