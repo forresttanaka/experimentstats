@@ -2,6 +2,7 @@
 
 const http = require('http');
 const fetch = require('node-fetch');
+const fs = require('fs');
 
 
 const segmentSize = 100; // # experiments to retrieve per segment
@@ -22,7 +23,7 @@ function getExperimentTotalFromResult(result) {
 
 
 function getExperiment(experimentId) {
-    const url = `http://localhost:6543${experimentId}`;
+    const url = `https://v51rc2-master.demo.encodedcc.org${experimentId}`;
     return fetch(url, {
         method: 'GET',
         headers: {
@@ -45,7 +46,7 @@ function getExperiment(experimentId) {
 // - count: Number of entries to retrieve. default is ENCODE system default. 'all' for all
 //          entries.
 function getSegment(start, count) {
-    const url = `http://localhost:6543/search/?type=Experiment${count ? `&limit=${count}` : ''}${start ? `&from=${start}` : ''}`;
+    const url = `https://v51rc2-master.demo.encodedcc.org/search/?type=Experiment${count ? `&limit=${count}` : ''}${start ? `&from=${start}` : ''}`;
     return fetch(url, {
         method: 'GET',
         headers: {
@@ -98,7 +99,7 @@ function getExperimentsIds() {
                 const currSegmentSize = experimentsLeft > segmentSize ? segmentSize : experimentsLeft;
                 parms.push({ start: start, count: currSegmentSize });
                 start += currSegmentSize;
-                experimentsLeft = totalRetrieveExperiments - start;
+                experimentsLeft = totalExperiments - start;
             }
             return parms;
         })();
@@ -152,7 +153,14 @@ getExperimentsIds().then(experimentIds => {
     )
 }).then((experimentStats) => {
     const sortedStats = experimentStats.sort((a, b) => b.size - a.size);
+    let output = '';
     sortedStats.forEach(stat => {
-        console.log('Experiment: %s -- size: %s', stat.id, stat.size);
+        output = output.concat(`${stat.id}\t${stat.size}\n`);
+    });
+    fs.writeFile("./experimentsizes.tsv", output, (err) => {
+        if (err) {
+            return console.log(err);
+        }
+        console.log("The file was saved!");
     });
 });
