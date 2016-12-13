@@ -22,8 +22,8 @@ function getExperimentTotalFromResult(result) {
 }
 
 
-function getExperiment(experimentId) {
-    const url = `https://v51rc2-master.demo.encodedcc.org${experimentId}`;
+function getExperiment(host, experimentId) {
+    const url = `${host}${experimentId}`;
     return fetch(url, {
         method: 'GET',
         headers: {
@@ -45,8 +45,8 @@ function getExperiment(experimentId) {
 // - start: starting search result index of data being requested. default 0.
 // - count: Number of entries to retrieve. default is ENCODE system default. 'all' for all
 //          entries.
-function getSegment(start, count) {
-    const url = `https://v51rc2-master.demo.encodedcc.org/search/?type=Experiment${count ? `&limit=${count}` : ''}${start ? `&from=${start}` : ''}`;
+function getSegment(host, start, count) {
+    const url = `${host}/search/?type=Experiment${count ? `&limit=${count}` : ''}${start ? `&from=${start}` : ''}`;
     return fetch(url, {
         method: 'GET',
         headers: {
@@ -75,10 +75,10 @@ function getSegment(start, count) {
 }
 
 
-function getExperimentsIds() {
+function getExperimentsIds(host) {
     // Send an initial GET request to search for segment of experiments, so we can get the
     // total number of experiments.
-    return getSegment(0, segmentSize).then((result) => {
+    return getSegment(host, 0, segmentSize).then((result) => {
         const totalExperiments = getExperimentTotalFromResult(result);
 
         // Display the total number of experiments.
@@ -108,7 +108,7 @@ function getExperimentsIds() {
         return searchParms.reduce((promise, parm) =>
             promise.then(() =>
                 // Send the GET request for one segment
-                getSegment(parm.start, parm.count)
+                getSegment(host, parm.start, parm.count)
             ).then((segment) => {
                 // Got one segment of experiments. Add it to our array of @ids in retrieval order for now.
                 experimentIds = experimentIds.concat(getIdsFromData(segment));
@@ -120,14 +120,21 @@ function getExperimentsIds() {
 }
 
 
-getExperimentsIds().then(experimentIds => {
+process.argv.shift()  // skip node.exe
+process.argv.shift()  // skip name of js file
+let host = process.argv[0] ? process.argv[0] : 'http://localhost:6543';
+host = host[host.length - 1] === '/' ? host.slice(0, -1) : host;
+console.log('Using host %s', host);
+
+
+getExperimentsIds(host).then(experimentIds => {
     const experimentStats = [];
     let i = 0;
 
     return experimentIds.reduce((promise, experimentId) =>
         promise.then(() =>
             // With an experimentId, request the experiment itself.
-            getExperiment(experimentId)
+            getExperiment(host, experimentId)
         ).then((experiment) => {
             let trimmedExperiment = experiment;
 
