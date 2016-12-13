@@ -17,13 +17,14 @@ function getIdsFromData(data) {
 // Given a search result, get the total number of experiments in the database
 function getExperimentTotalFromResult(result) {
     const typeFacet = result.facets.find(facet => facet.field === 'type');
-    const experimentTypeTerm = typeFacet.terms.find(term => term.key === 'Experiment');
+    const experimentTypeTerm = typeFacet.terms.find(term => term.key === 'File');
     return experimentTypeTerm.doc_count;
 }
 
 
 function getExperiment(host, experimentId) {
     const url = `${host}${experimentId}`;
+    console.log('URL: %s', url);
     return fetch(url, {
         method: 'GET',
         headers: {
@@ -46,7 +47,7 @@ function getExperiment(host, experimentId) {
 // - count: Number of entries to retrieve. default is ENCODE system default. 'all' for all
 //          entries.
 function getSegment(host, start, count) {
-    const url = `${host}/search/?type=Experiment${count ? `&limit=${count}` : ''}${start ? `&from=${start}` : ''}`;
+    const url = `${host}/search/?type=File${count ? `&limit=${count}` : ''}${start ? `&from=${start}` : ''}`;
     return fetch(url, {
         method: 'GET',
         headers: {
@@ -82,7 +83,7 @@ function getExperimentsIds(host) {
         const totalExperiments = getExperimentTotalFromResult(result);
 
         // Display the total number of experiments.
-        console.log('Total experiments: %s', totalExperiments);
+        console.log('Total files: %s', totalExperiments);
 
         // Add this set of experiment @ids to the array of them we're collecting.
         let experimentIds = getIdsFromData(result);
@@ -105,11 +106,15 @@ function getExperimentsIds(host) {
         })();
 
         // Send out all our segment GET requests.
-        return searchParms.reduce((promise, parm) =>
-            promise.then(() =>
+        return searchParms.reduce((promise, parm, i) =>
+            promise.then(() => {
+                if (i % 10 === 0) {
+                    console.log('Getting segment %s', parm.start);
+                }
+
                 // Send the GET request for one segment
-                getSegment(host, parm.start, parm.count)
-            ).then((segment) => {
+                return getSegment(host, parm.start, parm.count)
+            }).then((segment) => {
                 // Got one segment of experiments. Add it to our array of @ids in retrieval order for now.
                 experimentIds = experimentIds.concat(getIdsFromData(segment));
 
@@ -131,40 +136,44 @@ getExperimentsIds(host).then(experimentIds => {
     const experimentStats = [];
     let i = 0;
 
-    return experimentIds.reduce((promise, experimentId) =>
-        promise.then(() =>
-            // With an experimentId, request the experiment itself.
-            getExperiment(host, experimentId)
-        ).then((experiment) => {
-            let trimmedExperiment = experiment;
+    return experimentIds.reduce((promise, experimentId, i) => {
+        if (i % 10 === 0) {
+            return promise.then(() =>
+                // With an experimentId, request the experiment itself.
+                getExperiment(host, experimentId)
+            ).then((experiment) => {
+                let trimmedExperiment = experiment;
 
-            // Convert to object and remove audits if they exist.
-            const experimentObj = JSON.parse(experiment);
-            if (experimentObj.audit) {
-                delete experimentObj.audit;
-                trimmedExperiment = JSON.stringify(experimentObj);
-            }
+                // Convert to object and remove audits if they exist.
+                const experimentObj = JSON.parse(experiment);
+                if (experimentObj.audit) {
+                    delete experimentObj.audit;
+                    trimmedExperiment = JSON.stringify(experimentObj);
+                }
 
-            // Got the experiment; add its ID and size to our array of experiments
-            experimentStats.push({ id: experimentId, size: trimmedExperiment.length });
+                // Got the experiment; add its ID and size to our array of experiments
+                experimentStats.push({ id: experimentId, size: trimmedExperiment.length });
 
-            // Every 20 experiments, give some progress.
-            i += 1;
-            if (i % 20 === 0) {
-                console.log('Got %s experiments', i);
-            }
+                // Every 20 experiments, give some progress.
+                i += 1;
+                if (i % 20 === 0) {
+                    console.log('Got %s files', i);
+                }
 
-            // Return the updated array of statistics.
-            return experimentStats;
-        }), Promise.resolve(experimentIds)
-    )
+                // Return the updated array of statistics.
+                return experimentStats;
+            });
+        }
+        return promise;
+    }, Promise.resolve(experimentIds));
 }).then((experimentStats) => {
+    console.log('STATS: %o', experimentStats);
     const sortedStats = experimentStats.sort((a, b) => b.size - a.size);
     let output = '';
     sortedStats.forEach(stat => {
         output = output.concat(`${stat.id}\t${stat.size}\n`);
     });
-    fs.writeFile("./experimentsizes.tsv", output, (err) => {
+    fs.writeFile("./filesizes.tsv", output, (err) => {
         if (err) {
             return console.log(err);
         }
